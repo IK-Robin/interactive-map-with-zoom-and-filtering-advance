@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Interactive SVG Map — Raw SVG + Global mapData (Type + Status filters)</title>
+<title>Interactive SVG Map — Raw SVG + Global mapData (Type + Status filters + Hover Fill)</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#0f1621; --ink:#e9eef6; --sub:#a9b4c4;
@@ -12,6 +12,8 @@
     --stroke:#18202b;
     /* Status colors */
     --available:#10b981; --sold:#ef4444; --reserved:#f59e0b; --development:#38bdf8;
+    /* Hover color (fill/stroke while hovering) */
+    --hover:#ef4444;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial;color:var(--ink);background:#0b0f14}
@@ -137,18 +139,14 @@ const NODES = [
 
 /* -------------------- Raw SVG for every node (paste your <g>…) ------------ */
 const RAW_NODE_SVGS = {
-  node1:{ markup:`<g <defs>
-        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs> id="raw_node1"><rect class="cls-1" id="n1_a" x="120" y="140" width="90" height="70"/><circle class="cls-2" id="n1_b" cx="260" cy="180" r="35"/></g>` },
-  node2:{ markup:`<g id="raw_node2"> <defs>
-        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs> <path class="cls-1" id="n2_a" d="M460,140 L560,150 L550,220 L460,210 Z"/><rect id="n2_b" x="565" y="150" width="85" height="70" class="cls-2"/></g>` },
-  node3:{ markup:`<g id="raw_node3"> <defs>
-        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs><circle class="cls-2" id="n3_a" cx="860" cy="190" r="50"/><path id="n3_b" class="cls-1" d="M950,160 L1040,170 L1030,250 L940,240 Z"/></g>` },
-  node4:{ markup:`<g id="raw_node4"> <defs>
-        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs><rect class="cls-1" id="n4_a" x="260" y="400" width="120" height="70"/><polygon id="n4_b" class="cls-2" points="370,392 500,388 510,520 380,520"/></g>` },
+  node1:{ markup:`<g id="raw_node1"><defs><style>.cls-1{fill:#f57f43}.cls-2{fill:#157f43}</style></defs><rect class="cls-1" id="n1_a" x="120" y="140" width="90" height="70"/><circle class="cls-2" id="n1_b" cx="260" cy="180" r="35"/></g>` },
+  node2:{ markup:`<g id="raw_node2"><defs><style>.cls-1{fill:#f57f43}.cls-2{fill:#157f43}</style></defs><path class="cls-1" id="n2_a" d="M460,140 L560,150 L550,220 L460,210 Z"/><rect id="n2_b" x="565" y="150" width="85" height="70" class="cls-2"/></g>` },
+  node3:{ markup:`<g id="raw_node3"><defs><style>.cls-1{fill:#f57f43}.cls-2{fill:#157f43}</style></defs><circle class="cls-2" id="n3_a" cx="860" cy="190" r="50"/><path id="n3_b" class="cls-1" d="M950,160 L1040,170 L1030,250 L940,240 Z"/></g>` },
+  node4:{ markup:`<g id="raw_node4"><defs><style>.cls-1{fill:#f57f43}.cls-2{fill:#157f43}</style></defs><rect class="cls-1" id="n4_a" x="260" y="400" width="120" height="70"/><polygon id="n4_b" class="cls-2" points="370,392 500,388 510,520 380,520"/></g>` },
   node5:{ markup:`
-    <g id="raw_node5" >
+    <g id="raw_node5">
       <defs>
-        <style>.cls-1{fill:#f57f43;}.cls-1,.cls-2,.cls-3,.cls-4,.cls-5,.cls-6,.cls-7,.cls-8,.cls-9{stroke:#231f20;stroke-miterlimit:10;}.cls-2{fill:#74c044;}.cls-3{fill:#5456a5;}.cls-4{fill:#bdd631;}.cls-5{fill:#d19b2a;}.cls-6{fill:#4bb966;}.cls-7{fill:#9daa39;}.cls-8{fill:#6ebe45;}.cls-9{fill:#7e6c2b;}</style>
+        <style>.cls-1{fill:#f57f43}.cls-1,.cls-2,.cls-3,.cls-4,.cls-5,.cls-6,.cls-7,.cls-8,.cls-9{stroke:#231f20;stroke-miterlimit:10}.cls-2{fill:#74c044}.cls-3{fill:#5456a5}.cls-4{fill:#bdd631}.cls-5{fill:#d19b2a}.cls-6{fill:#4bb966}.cls-7{fill:#9daa39}.cls-8{fill:#6ebe45}.cls-9{fill:#7e6c2b}</style>
       </defs>
       <path id="ploat_6" class="cls-6" d="m86,232l112-6,16,160s-140,93-139,96-17-181-17-184,28-66,28-66Z"/>
       <path id="ploat_5" class="cls-5" d="m236,174s30,89,33,90,95,4,95,4l-7-113-35-68-34-61-80,34,28,114Z"/>
@@ -170,23 +168,23 @@ const RAW_NODE_SVGS = {
 /* -------------------- Global metadata for ALL nodes ----------------------- */
 const mapData = [
   // node1
-  { id:'n1_a', node:'node1', type:'Retail',        area:1.2, status:'Available', label:'N1 A' },
-  { id:'n1_b', node:'node1', type:'Residential',   area:0.9, status:'Available', label:'N1 B' },
+  { id:'n1_a', node:'node1', type:'Retail',        area:1.2, status:'Available',  label:'N1 A' },
+  { id:'n1_b', node:'node1', type:'Residential',   area:0.9, status:'Available',  label:'N1 B' },
   // node2
-  { id:'n2_a', node:'node2', type:'Industrial',    area:2.1, status:'Available', label:'N2 A' },
-  { id:'n2_b', node:'node2', type:'Retail',        area:1.5, status:'Available', label:'N2 B' },
+  { id:'n2_a', node:'node2', type:'Industrial',    area:2.1, status:'Available',  label:'N2 A' },
+  { id:'n2_b', node:'node2', type:'Retail',        area:1.5, status:'Reserved',   label:'N2 B' },
   // node3
-  { id:'n3_a', node:'node3', type:'Hospitality',   area:1.8, status:'Available', label:'N3 A' },
-  { id:'n3_b', node:'node3', type:'Retail',        area:1.6, status:'Available', label:'N3 B' },
+  { id:'n3_a', node:'node3', type:'Hospitality',   area:1.8, status:'Available',  label:'N3 A' },
+  { id:'n3_b', node:'node3', type:'Retail',        area:1.6, status:'Sold',       label:'N3 B' },
   // node4
-  { id:'n4_a', node:'node4', type:'Educational',   area:1.1, status:'Available', label:'N4 A' },
-  { id:'n4_b', node:'node4', type:'Residential',   area:3.8, status:'Available', label:'N4 B' },
+  { id:'n4_a', node:'node4', type:'Educational',   area:1.1, status:'Development',label:'N4 A' },
+  { id:'n4_b', node:'node4', type:'Residential',   area:3.8, status:'Available',  label:'N4 B' },
   // node5
   { id:'ploat_6', node:'node5', type:'Residential',    area:1.9, status:'Available',  label:'Ploat 6' },
   { id:'ploat_5', node:'node5', type:'Residential',    area:2.5, status:'Reserved',   label:'Ploat 5' },
-  { id:'rect',    node:'node5', type:'Residential',    area:2.0, status:'Available',  label:'Rect Office' },
+  { id:'rect',    node:'node5', type:'Educational',    area:2.0, status:'Available',  label:'Rect Office' },
   { id:'ploat_3', node:'node5', type:'Residential',    area:1.0, status:'Sold',       label:'Ploat 3' },
-  { id:'ploat_2', node:'node5', type:'Residential',    area:2.2, status:'Development',label:'Ploat 2' },
+  { id:'ploat_2', node:'node5', type:'Educational',    area:2.2, status:'Development',label:'Ploat 2' },
   { id:'road_2',  node:'node5', type:'Residential',    area:0.0, status:'Available',  label:'Road 2' },
   { id:'circle_3',node:'node5', type:'Retail',         area:0.8, status:'Available',  label:'Health Circle' },
   { id:'circle_', node:'node5', type:'Residential',    area:0.8, status:'Available',  label:'Edu Circle' },
@@ -251,7 +249,6 @@ function buildTypeLegend(){
 }
 function buildStatusLegend(){
   legendStatus.innerHTML='';
-  // derive all statuses from mapData (unique set)
   const statuses = [...new Set(mapData.map(m=> (m.status||'').trim()).filter(Boolean))];
   statuses.forEach(st=>{
     const color = STATUS_COLORS[st] || '#94a3b8';
@@ -370,12 +367,12 @@ function fitOverview(setBaseFlag=true){
 function fitCurrentNode(setBaseFlag=true){
   const g = parcelLayer.querySelector('#raw_mount');
   if(g){ const bb=g.getBBox(); zoomToBBox(bb, 36, null, setBaseFlag); return; }
-  animateTo({x:0,y:0,scale:1}); if(setBaseFlag) setBaseTransform({x:0,y:0,scale:1});
+  animateTo({x:0,y:0,scale:1}); if(setAsBaseFlag) setBaseTransform({x:0,y:0,scale:1});
 }
 
 zoomInBtn.addEventListener('click', ()=>zoomBy(1.25));
 zoomOutBtn.addEventListener('click', ()=>zoomBy(0.8));
-resetBtn.addEventListener('click', ()=>{ tooltip.classList.add('hidden'); popover.classList.add('hidden'); stopPopoverFollow(); currentNode ? fitCurrentNode(true) : fitOverview(true); });
+resetBtn.addEventListener('click', ()=>{ tooltip.classList.add('hidden'); popover.classList.add('hidden'); clearHover(); stopPopoverFollow(); currentNode ? fitCurrentNode(true) : fitOverview(true); });
 map.addEventListener('wheel', (e)=>{
   e.preventDefault(); const r=map.getBoundingClientRect(); zoomBy(e.deltaY<0?1.1:0.9, e.clientX-r.left, e.clientY-r.top);
 },{passive:false});
@@ -385,6 +382,84 @@ const PAN_THRESHOLD=6; let pan={tracking:false,panning:false,id:null,startX:0,st
 map.addEventListener('pointerdown',(e)=>{ pan.tracking=true; pan.panning=false; pan.id=e.pointerId; pan.startX=pan.lastX=e.clientX; pan.startY=pan.lastY=e.clientY; const bg=(e.target===map||e.target.id==='bg'); if(bg){ pan.panning=true; map.setPointerCapture(pan.id);} });
 map.addEventListener('pointermove',(e)=>{ if(!pan.tracking) return; if(!pan.panning){ const dx0=e.clientX-pan.startX, dy0=e.clientY-pan.startY; if(Math.hypot(dx0,dy0)>=PAN_THRESHOLD){ pan.panning=true; justDragged=true; map.setPointerCapture(pan.id);} else return; } const dx=e.clientX-pan.lastX, dy=e.clientY-pan.lastY; pan.lastX=e.clientX; pan.lastY=e.clientY; t.x+=dx; t.y+=dy; applyTransform(); });
 map.addEventListener('pointerup',()=>{ if(pan.panning) map.releasePointerCapture(pan.id); pan={tracking:false,panning:false,id:null,startX:0,startY:0,lastX:0,lastY:0}; if(justDragged) setTimeout(()=>{ justDragged=false; },0); });
+
+/* ----------------------------- Hover highlight ---------------------------- */
+/* ---------------- Hover helpers (fixed) ---------------- */
+let lastHoverEl = null;
+let lastHoverPrev = {
+  attrFill:null, attrStroke:null,
+  styleFill:'', styleStroke:'', styleStrokeWidth:'', styleVectorEffect:'',
+  filter:''
+};
+
+function applyHover(el){
+  if (lastHoverEl === el) return;
+  clearHover();
+
+  lastHoverEl = el;
+
+  // snapshot previous state (both attributes and inline styles)
+  lastHoverPrev.attrFill        = el.getAttribute('fill');
+  lastHoverPrev.attrStroke      = el.getAttribute('stroke');
+  lastHoverPrev.styleFill       = el.style.fill;
+  lastHoverPrev.styleStroke     = el.style.stroke;
+  lastHoverPrev.styleStrokeWidth= el.style.strokeWidth;
+  lastHoverPrev.styleVectorEffect = el.style.vectorEffect;
+  lastHoverPrev.filter          = el.style.filter || '';
+
+  const tag   = el.tagName.toLowerCase();
+  const hover = getComputedStyle(document.documentElement).getPropertyValue('--hover').trim() || '#fff';
+  const cs    = getComputedStyle(el);
+
+  // Visual emphasis
+  el.style.filter = 'brightness(1.1) saturate(1.15)';
+
+  if (tag === 'line' || tag === 'polyline') {
+    // Lines: highlight stroke
+    el.style.stroke = hover;
+    // keep stoke readable
+    const sw = parseFloat(cs.strokeWidth) || 2;
+    el.style.strokeWidth = String(sw * 1.2);
+    el.style.vectorEffect = 'non-scaling-stroke';
+  } else {
+    // Fillable shapes: highlight fill
+    el.style.fill = hover;
+
+    // Add a subtle outline if none exists so hover stands out on dark BG
+    const hasStroke = cs.stroke && cs.stroke !== 'none';
+    if (!hasStroke) {
+      el.style.stroke = 'rgba(0,0,0,.25)';
+      el.style.strokeWidth = '2';
+      el.style.vectorEffect = 'non-scaling-stroke';
+    }
+  }
+}
+
+function clearHover(){
+  if (!lastHoverEl) return;
+
+  const el = lastHoverEl;
+
+  // restore filter
+  el.style.filter = lastHoverPrev.filter || '';
+
+  // Restore attributes first (source of truth for original SVG)
+  if (lastHoverPrev.attrFill == null) el.removeAttribute('fill'); else el.setAttribute('fill', lastHoverPrev.attrFill);
+  if (lastHoverPrev.attrStroke == null) el.removeAttribute('stroke'); else el.setAttribute('stroke', lastHoverPrev.attrStroke);
+
+  // Then restore inline styles that we may have overridden
+  if (lastHoverPrev.styleFill) el.style.fill = lastHoverPrev.styleFill; else el.style.removeProperty('fill');
+  if (lastHoverPrev.styleStroke) el.style.stroke = lastHoverPrev.styleStroke; else el.style.removeProperty('stroke');
+  if (lastHoverPrev.styleStrokeWidth) el.style.strokeWidth = lastHoverPrev.styleStrokeWidth; else el.style.removeProperty('stroke-width');
+  if (lastHoverPrev.styleVectorEffect) el.style.vectorEffect = lastHoverPrev.styleVectorEffect; else el.style.removeProperty('vector-effect');
+
+  lastHoverEl = null;
+  lastHoverPrev = {
+    attrFill:null, attrStroke:null,
+    styleFill:'', styleStroke:'', styleStrokeWidth:'', styleVectorEffect:'',
+    filter:''
+  };
+}
 
 /* ----------------------------- Render: Overview --------------------------- */
 function drawNodes(){
@@ -499,7 +574,6 @@ function buildParcelList(meta){
         btn.classList.add('match');
         btn.style.background = TYPE_COLORS[m.type] || '#334155';
         btn.style.color = '#0b0f14';
-        // subtle status ring
         const st = STATUS_COLORS[m.status];
         if(st) btn.style.boxShadow = `0 0 0 2px ${st} inset`;
       } else {
@@ -511,8 +585,10 @@ function buildParcelList(meta){
       const el = parcelLayer.querySelector(`#${CSS.escape(id)}`); if(!el) return;
       const bb = el.getBBox(); const pt=svgToClient(bb.x+bb.width/2, bb.y);
       showTooltipAt(pt.x,pt.y,`<b>${m.label||id}</b><br><small>${m.type} • ${( +m.area||0 ).toFixed(2)} ha • ${m.status}</small>`);
+      // also show hover effect when hovering the list
+      if(matchesFilters(m)) applyHover(el);
     });
-    btn.addEventListener('mouseleave', hideTooltip);
+    btn.addEventListener('mouseleave', ()=>{ hideTooltip(); clearHover(); });
     btn.addEventListener('click', ()=>{
       const el = parcelLayer.querySelector(`#${CSS.escape(id)}`); if(!el) return;
       openRawParcelPanel(el, id, m);
@@ -538,7 +614,7 @@ function openRawParcelPanel(el, id, m){
 
 function enterNode(id){
   currentNode=id;
-  updateBackState(); hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow();
+  updateBackState(); hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow(); clearHover();
 
   nodeLayer.innerHTML=''; // hide 5 nodes in detail
   nodeTitle.classList.remove('hidden');
@@ -586,16 +662,18 @@ function enterNode(id){
 
   parcelLayer._delegated.move = (e)=>{
     const el = e.target.closest('#raw_mount [id]');
-    if (!el) { hideTooltip(); return; }
+    if (!el) { hideTooltip(); clearHover(); return; }
     const pid = el.id;
     const m = meta[pid];
-    if (!m) { hideTooltip(); return; }
-    if (!matchesFilters(m)) { hideTooltip(); return; }
+    if (!m) { hideTooltip(); clearHover(); return; }
+    if (!matchesFilters(m)) { hideTooltip(); clearHover(); return; }
+    // tooltip + hover fill effect
     showTooltipAt(e.clientX, e.clientY, `<b>${m.label||pid}</b><br><small>${m.type} • ${( +m.area||0 ).toFixed(2)} ha • ${m.status}</small>`);
+    applyHover(el);
   };
   parcelLayer.addEventListener('pointermove', parcelLayer._delegated.move);
 
-  parcelLayer._delegated.leave = ()=> hideTooltip();
+  parcelLayer._delegated.leave = ()=> { hideTooltip(); clearHover(); };
   parcelLayer.addEventListener('pointerleave', parcelLayer._delegated.leave);
 
   buildParcelList(meta);
@@ -606,7 +684,7 @@ function enterNode(id){
 
 function exitToOverview(){
   currentNode=null;
-  updateBackState(); hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow();
+  updateBackState(); hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow(); clearHover();
 
   nodeTitle.classList.add('hidden');
   parcelLayer.innerHTML='';
@@ -693,7 +771,7 @@ backBtn.addEventListener('click', exitToOverview);
 /* Close popover ONLY when clicking the background, not parcel rects */
 map.addEventListener('click', (e)=>{
   if (e.target === map || e.target.id === 'bg') {
-    hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow();
+    hideTooltip(); popover.classList.add('hidden'); clearHover(); stopPopoverFollow();
   }
 });
 window.addEventListener('keydown', e=>{ if(e.key==='Escape' && currentNode){ exitToOverview(); } });
