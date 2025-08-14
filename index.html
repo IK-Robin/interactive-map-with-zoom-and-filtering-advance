@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Interactive SVG Map — Raw SVG + Global mapData (Type + Status filters)</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#0f1621; --ink:#e9eef6; --sub:#a9b4c4;
+    --res:#60a5fa; --ret:#fbbf24; --off:#a78bfa; --ind:#f97316; --hos:#f472b6;
+    --edu:#22c55e; --hlth:#ef4444; --rec:#2dd4bf; --mix:#c084fc; --infra:#94a3b8;
+    --stroke:#18202b;
+    /* Status colors */
+    --available:#10b981; --sold:#ef4444; --reserved:#f59e0b; --development:#38bdf8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial;color:var(--ink);background:#0b0f14}
+
+  .wrap{max-width:1200px;margin:0 auto}
+  .topbar{position:sticky;top:0;z-index:10;background:#0f1621;border-bottom:1px solid var(--stroke)}
+  .topbar-inner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px}
+  .btn{background:#111827;border:1px solid #1f2a38;color:#cfe3ff;padding:6px 10px;border-radius:10px;cursor:pointer}
+  .btn:hover{border-color:#2a3a52}
+  .btn.ghost{background:transparent}
+  .badge{background:#0d1520;border:1px solid #203049;color:#bcd0ea;padding:4px 8px;border-radius:999px}
+  .legend{display:flex;gap:10px;row-gap:8px;flex-wrap:wrap}
+  .chip{display:flex;gap:6px;align-items:center;border:1px solid #1f2a38;border-radius:999px;padding:4px 8px;cursor:pointer}
+  .dot{width:12px;height:12px;border-radius:50%}
+  input[type="radio"]{display:none}
+  .chip input:checked + .dot{outline:2px solid #ffffff66;outline-offset:2px}
+
+  .layout{display:grid;grid-template-columns:260px 1fr;gap:14px;padding:14px}
+  .panel{background:#0f1621;border:1px solid var(--stroke);border-radius:14px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.28)}
+  .sidebar .title{margin:0 0 8px;font-size:16px}
+  .list{list-style:none;padding:0;margin:0;display:grid;gap:6px}
+  .list .btn{width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center}
+  .small-badge{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #203049;background:#0d1520;color:#bcd0ea}
+  .node-has-matches{border-color:#2b3b54;background:#0d1726}
+  .small-badge.hidden{display:none}
+
+  .mapWrap{position:relative}
+  svg{width:100%;height:auto;display:block;background:#0a121b;border-radius:12px;border:1px solid #17212f;touch-action:none}
+  .nodes text{font-size:18px;fill:#cfd8e3;font-weight:600;cursor:pointer}
+  .node{fill:#0e1a29;stroke:#1d2a3b;stroke-width:2;cursor:pointer}
+  .node:hover,.is-hot{filter:drop-shadow(0 0 8px rgba(125,211,252,.5))}
+  .parcel{stroke:#0e1622;stroke-width:2;vector-effect:non-scaling-stroke;cursor:pointer}
+
+  .summary-bottom{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;background:#0d1420;border:1px solid #223043;padding:10px 14px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.35);z-index:3}
+  .counter{position:absolute;left:50%;transform:translateX(-50%);bottom:62px;background:#0d1420;border:1px solid #223043;padding:8px 12px;border-radius:999px;z-index:3}
+  .node-title{position:absolute;left:12px;top:12px;background:#0d1420;border:1px solid #223043;padding:8px 10px;border-radius:10px;z-index:3}
+
+  .tooltip{position:fixed;pointer-events:none;max-width:260px;background:#0d1420;border:1px solid #223043;padding:8px 10px;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.45);z-index:5;font-size:12px}
+  .popover{position:fixed;max-width:360px;background:#0d1420;border:1px solid #223043;padding:12px;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.45);z-index:6}
+  .hidden{display:none}
+
+  .btn.match { font-weight:700; border-color:transparent; }
+  .btn.dim { opacity:.45; }
+
+  .ov-parcel, .ov-parcel * { pointer-events:none !important; } /* overview parcels visual only */
+  .disabled { pointer-events:none !important; }                 /* non-matching parcels in node view */
+
+  /* ensure raw SVG shapes can receive events */
+  #raw_mount [id] { pointer-events:auto; }
+
+  /* Type classes -> colors */
+  .c-Residential{fill:var(--res)} .c-Retail{fill:var(--ret)} .c-Office{fill:var(--off)}
+  .c-Industrial{fill:var(--ind)} .c-Hospitality{fill:var(--hos)} .c-Educational{fill:var(--edu)}
+  .c-Health{fill:var(--hlth)} .c-Recreational{fill:var(--rec)} .c-Mixed{fill:var(--mix)} .c-Infrastructure{fill:var(--infra)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="topbar-inner">
+      <button id="backBtn" class="btn ghost" disabled>← Back to all nodes</button>
+      <button id="zoomInBtn" class="btn">＋</button>
+      <button id="zoomOutBtn" class="btn">－</button>
+      <button id="resetBtn" class="btn">Reset view</button>
+
+      <span id="status" class="badge">No filter</span>
+
+      <!-- Type legend -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <strong style="font-size:12px;color:#9fb4d2">Type:</strong>
+        <div id="legendTypes" class="legend" role="radiogroup" aria-label="Type filter"></div>
+        <button id="clearType" class="btn ghost">Clear</button>
+      </div>
+
+      <!-- Status legend -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <strong style="font-size:12px;color:#9fb4d2">Status:</strong>
+        <div id="legendStatus" class="legend" role="radiogroup" aria-label="Status filter"></div>
+        <button id="clearStatus" class="btn ghost">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside class="panel sidebar">
+      <h3 id="nodesTitle" class="title">Nodes</h3>
+      <ul id="nodeList" class="list"></ul>
+      <div id="nodesDivider" style="height:1px;background:linear-gradient(90deg,transparent,#223043,transparent);margin:12px 0"></div>
+      <h3 class="title">Parcels</h3>
+      <ul id="parcelList" class="list"></ul>
+    </aside>
+
+    <div class="panel mapWrap">
+      <div id="nodeTitle" class="node-title hidden"></div>
+      <svg id="map" viewBox="0 0 1200 720" aria-label="Development map">
+        <!-- Background has its own id to avoid catching parcel <rect> clicks -->
+        <rect id="bg" x="0" y="0" width="1200" height="720" fill="#0a121b"/>
+        <g id="stage">
+          <g id="nodeLayer" class="nodes"></g>
+          <g id="parcelLayer"></g>
+        </g>
+      </svg>
+
+      <div id="counter" class="counter hidden"></div>
+      <div id="summaryBottom" class="summary-bottom hidden" aria-live="polite"></div>
+
+      <div id="tooltip" class="tooltip hidden"></div>
+      <div id="popover" class="popover hidden" role="dialog" aria-modal="true"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* -------------------- Overview shapes (click to enter) -------------------- */
+const NODES = [
+  {id:'node1', name:'Node One',  path:'M80,120 L360,90 L400,220 L140,260 Z', info:{area:52.4, parcels:18}},
+  {id:'node2', name:'Node Two',  path:'M430,80 L700,120 L640,260 L420,220 Z', info:{area:64.1, parcels:22}},
+  {id:'node3', name:'Node Three',path:'M760,100 L1080,120 L1060,300 L840,260 Z', info:{area:48.3, parcels:16}},
+  {id:'node4', name:'Node Four', path:'M200,380 L520,360 L540,600 L220,560 Z', info:{area:71.2, parcels:26}},
+  {id:'node5', name:'Node Five', path:'M680,360 L1080,380 L1060,620 L720,580 Z', info:{area:58.6, parcels:21}},
+];
+
+/* -------------------- Raw SVG for every node (paste your <g>…) ------------ */
+const RAW_NODE_SVGS = {
+  node1:{ markup:`<g <defs>
+        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs> id="raw_node1"><rect class="cls-1" id="n1_a" x="120" y="140" width="90" height="70"/><circle class="cls-2" id="n1_b" cx="260" cy="180" r="35"/></g>` },
+  node2:{ markup:`<g id="raw_node2"> <defs>
+        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs> <path class="cls-1" id="n2_a" d="M460,140 L560,150 L550,220 L460,210 Z"/><rect id="n2_b" x="565" y="150" width="85" height="70" class="cls-2"/></g>` },
+  node3:{ markup:`<g id="raw_node3"> <defs>
+        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs><circle class="cls-2" id="n3_a" cx="860" cy="190" r="50"/><path id="n3_b" class="cls-1" d="M950,160 L1040,170 L1030,250 L940,240 Z"/></g>` },
+  node4:{ markup:`<g id="raw_node4"> <defs>
+        <style> .cls-1{fill:#f57f43;}.cls-2{fill:#157f43;}} </style> </defs><rect class="cls-1" id="n4_a" x="260" y="400" width="120" height="70"/><polygon id="n4_b" class="cls-2" points="370,392 500,388 510,520 380,520"/></g>` },
+  node5:{ markup:`
+    <g id="raw_node5" >
+      <defs>
+        <style>.cls-1{fill:#f57f43;}.cls-1,.cls-2,.cls-3,.cls-4,.cls-5,.cls-6,.cls-7,.cls-8,.cls-9{stroke:#231f20;stroke-miterlimit:10;}.cls-2{fill:#74c044;}.cls-3{fill:#5456a5;}.cls-4{fill:#bdd631;}.cls-5{fill:#d19b2a;}.cls-6{fill:#4bb966;}.cls-7{fill:#9daa39;}.cls-8{fill:#6ebe45;}.cls-9{fill:#7e6c2b;}</style>
+      </defs>
+      <path id="ploat_6" class="cls-6" d="m86,232l112-6,16,160s-140,93-139,96-17-181-17-184,28-66,28-66Z"/>
+      <path id="ploat_5" class="cls-5" d="m236,174s30,89,33,90,95,4,95,4l-7-113-35-68-34-61-80,34,28,114Z"/>
+      <rect id="rect" class="cls-9" x="268" y="339" width="164" height="164"/>
+      <circle id="ploat_3" class="cls-7" cx="174" cy="553" r="59"/>
+      <path id="ploat_2" class="cls-2" d="m77,74l34,65-25,47-14,46,108-33,4-44-37-50s14-48,15-51-1-37-1-37l-33-5-51,62Z"/>
+      <path id="road_2" class="cls-4" d="m365,36s58,5,78,64,8,17,24,108,11,44,21,125,48,54,57,50,11-84-6-99-42-32-31-78,8-62,6-103-15-51-42-66-39-24-57-25-50,24-50,24Z"/>
+      <circle class="cls-1" cx="375" cy="590" r="55"/>
+      <circle id="circle_3" class="cls-3" cx="496" cy="520" r="55"/>
+      <circle id="circle_" class="cls-8" cx="419" cy="274" r="55"/>
+      <rect class="cls-6" x="95" y="653" width="42" height="54"/>
+      <rect class="cls-6" x="190" y="676" width="46" height="52"/>
+      <rect class="cls-6" x="288" y="645" width="46" height="52"/>
+      <rect class="cls-6" x="488" y="408" width="46" height="52"/>
+    </g>
+  ` }
+};
+
+/* -------------------- Global metadata for ALL nodes ----------------------- */
+const mapData = [
+  // node1
+  { id:'n1_a', node:'node1', type:'Retail',        area:1.2, status:'Available', label:'N1 A' },
+  { id:'n1_b', node:'node1', type:'Residential',   area:0.9, status:'Available', label:'N1 B' },
+  // node2
+  { id:'n2_a', node:'node2', type:'Industrial',    area:2.1, status:'Available', label:'N2 A' },
+  { id:'n2_b', node:'node2', type:'Retail',        area:1.5, status:'Available', label:'N2 B' },
+  // node3
+  { id:'n3_a', node:'node3', type:'Hospitality',   area:1.8, status:'Available', label:'N3 A' },
+  { id:'n3_b', node:'node3', type:'Retail',        area:1.6, status:'Available', label:'N3 B' },
+  // node4
+  { id:'n4_a', node:'node4', type:'Educational',   area:1.1, status:'Available', label:'N4 A' },
+  { id:'n4_b', node:'node4', type:'Residential',   area:3.8, status:'Available', label:'N4 B' },
+  // node5
+  { id:'ploat_6', node:'node5', type:'Residential',    area:1.9, status:'Available',  label:'Ploat 6' },
+  { id:'ploat_5', node:'node5', type:'Residential',    area:2.5, status:'Reserved',   label:'Ploat 5' },
+  { id:'rect',    node:'node5', type:'Residential',    area:2.0, status:'Available',  label:'Rect Office' },
+  { id:'ploat_3', node:'node5', type:'Residential',    area:1.0, status:'Sold',       label:'Ploat 3' },
+  { id:'ploat_2', node:'node5', type:'Residential',    area:2.2, status:'Development',label:'Ploat 2' },
+  { id:'road_2',  node:'node5', type:'Residential',    area:0.0, status:'Available',  label:'Road 2' },
+  { id:'circle_3',node:'node5', type:'Retail',         area:0.8, status:'Available',  label:'Health Circle' },
+  { id:'circle_', node:'node5', type:'Residential',    area:0.8, status:'Available',  label:'Edu Circle' },
+];
+
+/* ---------------------- Types & Status palettes --------------------------- */
+const TYPE_COLORS = {
+  Residential:'var(--res)', Retail:'var(--ret)', Office:'var(--off)', Industrial:'var(--ind)',
+  Hospitality:'var(--hos)', Educational:'var(--edu)', Health:'var(--hlth)', Recreational:'var(--rec)',
+  Mixed:'var(--mix)', Infrastructure:'var(--infra)'
+};
+const STATUS_COLORS = {
+  Available:'var(--available)',
+  Sold:'var(--sold)',
+  Reserved:'var(--reserved)',
+  Development:'var(--development)'
+};
+const TYPE_CLASS = Object.fromEntries(Object.keys(TYPE_COLORS).map(k=>[k,'c-'+k]));
+
+/* -------------------------------- Refs & State ---------------------------- */
+const map = document.getElementById('map');
+const stage = document.getElementById('stage');
+const nodeLayer = document.getElementById('nodeLayer');
+const parcelLayer = document.getElementById('parcelLayer');
+const nodeList = document.getElementById('nodeList');
+const parcelList = document.getElementById('parcelList');
+const tooltip = document.getElementById('tooltip');
+const popover = document.getElementById('popover');
+const statusEl = document.getElementById('status');
+const counter = document.getElementById('counter');
+const summaryBottom = document.getElementById('summaryBottom');
+const nodeTitle = document.getElementById('nodeTitle');
+const nodesTitle = document.getElementById('nodesTitle');
+const nodesDivider = document.getElementById('nodesDivider');
+const backBtn = document.getElementById('backBtn');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const resetBtn = document.getElementById('resetBtn');
+const legendTypes = document.getElementById('legendTypes');
+const legendStatus = document.getElementById('legendStatus');
+const clearType = document.getElementById('clearType');
+const clearStatus = document.getElementById('clearStatus');
+
+let currentNode = null;
+let currentType = null;
+let currentStatus = null;
+
+let t = {x:0,y:0,scale:1};
+let base = {x:0,y:0,scale:1};
+function setBaseTransform(tf){ base = {...tf}; }
+function applyTransform(){ stage.setAttribute('transform', `translate(${t.x},${t.y}) scale(${t.scale})`); }
+
+/* ----------------------------- Legend (filters) --------------------------- */
+function buildTypeLegend(){
+  legendTypes.innerHTML='';
+  Object.entries(TYPE_COLORS).forEach(([label,color])=>{
+    const wrap=document.createElement('label'); wrap.className='chip';
+    wrap.innerHTML = `<input type="radio" name="type" value="${label}"><span class="dot" style="background:${color}"></span>${label}`;
+    wrap.querySelector('input').addEventListener('change',()=>setType(label));
+    legendTypes.appendChild(wrap);
+  });
+}
+function buildStatusLegend(){
+  legendStatus.innerHTML='';
+  // derive all statuses from mapData (unique set)
+  const statuses = [...new Set(mapData.map(m=> (m.status||'').trim()).filter(Boolean))];
+  statuses.forEach(st=>{
+    const color = STATUS_COLORS[st] || '#94a3b8';
+    const wrap=document.createElement('label'); wrap.className='chip';
+    wrap.innerHTML = `<input type="radio" name="status" value="${st}"><span class="dot" style="background:${color}"></span>${st}`;
+    wrap.querySelector('input').addEventListener('change',()=>setStatus(st));
+    legendStatus.appendChild(wrap);
+  });
+}
+clearType.addEventListener('click', ()=>setType(null));
+clearStatus.addEventListener('click', ()=>setStatus(null));
+
+/* -------------------------------- Utilities ------------------------------- */
+function elem(tag, attrs={}, text){
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));
+  if(text) e.appendChild(document.createTextNode(text));
+  return e;
+}
+function centroid(pathD){ const p=elem('path',{d:pathD}); stage.appendChild(p); const bb=p.getBBox(); p.remove(); return {x:bb.x+bb.width/2,y:bb.y+bb.height/2}; }
+function pathBBox(pathD){ const p=elem('path',{d:pathD}); stage.appendChild(p); const bb=p.getBBox(); p.remove(); return bb; }
+function svgToClient(x,y){ const pt=map.createSVGPoint(); pt.x=x; pt.y=y; const screen=pt.matrixTransform(stage.getCTM()).matrixTransform(map.getScreenCTM()); return {x:screen.x,y:screen.y}; }
+function unionBBox(bbs){ const xs=bbs.map(b=>b.x), ys=bbs.map(b=>b.y), x2s=bbs.map(b=>b.x+b.width), y2s=bbs.map(b=>b.y+b.height); const x=Math.min(...xs), y=Math.min(...ys), x2=Math.max(...x2s), y2=Math.max(...y2s); return {x,y,width:x2-x,height:y2-y}; }
+function norm(s){ return (s??'').toString().trim().toLowerCase(); }
+
+/* ----------------------------- mapData helpers ---------------------------- */
+function parseSVGFragment(markup){
+  const wrap = document.createElementNS('http://www.w3.org/2000/svg','g');
+  wrap.innerHTML = markup.trim().replace(/^<\?xml.*?\?>/,'');
+  const g = wrap.firstElementChild && wrap.firstElementChild.tagName.toLowerCase()==='g' ? wrap.firstElementChild : wrap;
+  return g;
+}
+function buildMetaForNode(nodeId, groupEl){
+  const meta = {};
+  const presentIds = new Set([...groupEl.querySelectorAll('[id]')].map(el=>el.id));
+  mapData.forEach(m=>{
+    if(m.node && m.node !== nodeId) return;
+    if(!m.node && !presentIds.has(m.id)) return;
+    meta[m.id] = { type:m.type, area:+m.area||0, status:m.status||'—', label:m.label||m.id };
+  });
+  return meta;
+}
+function matchesFilters(m){
+  const okType   = !currentType   || norm(m.type)   === norm(currentType);
+  const okStatus = !currentStatus || norm(m.status) === norm(currentStatus);
+  return okType && okStatus;
+}
+function countTypeInNode(nodeId, type){
+  const def = RAW_NODE_SVGS[nodeId]; if(!def) return 0;
+  const temp = parseSVGFragment(def.markup); stage.appendChild(temp);
+  const meta = buildMetaForNode(nodeId, temp);
+  const c = Object.values(meta).filter(m=> (!type || norm(m.type)===norm(type)) && (!currentStatus || norm(m.status)===norm(currentStatus)) ).length;
+  temp.remove();
+  return c;
+}
+
+/* ---------------------------- Tooltip & Popover --------------------------- */
+function showTooltipAt(x,y,html){
+  tooltip.innerHTML=html; tooltip.classList.remove('hidden');
+  const r=tooltip.getBoundingClientRect(); let left=x+12, top=y+12, m=8;
+  if(left+r.width>innerWidth-m) left=innerWidth-r.width-m;
+  if(top+r.height>innerHeight-m) top=innerHeight-r.height-m;
+  if(left<m) left=m; if(top<m) top=m;
+  tooltip.style.left=left+'px'; tooltip.style.top=top+'px';
+}
+function hideTooltip(){ tooltip.classList.add('hidden'); }
+let activePopover = { followEl:null };
+function setPopoverContent(html){ popover.innerHTML=html; popover.classList.remove('hidden'); }
+function positionPopoverForElement(el, anchor='top-center'){
+  const bb = el.getBBox(); const ax=bb.x+bb.width/2; const ay=(anchor==='top-center')?bb.y:(bb.y+bb.height/2);
+  const pt = svgToClient(ax, ay); const r=popover.getBoundingClientRect(); let left=pt.x+12, top=pt.y+12, m=8;
+  if(left+r.width>innerWidth-m) left=innerWidth-r.width-m;
+  if(top+r.height>innerHeight-m) top=innerHeight-r.height-m;
+  if(left<m) left=m; if(top<m) top=m; popover.style.left=left+'px'; popover.style.top=top+'px';
+}
+function startPopoverFollow(el){ activePopover.followEl = el; }
+function stopPopoverFollow(){ activePopover.followEl = null; }
+window.addEventListener('pointerdown', e=>{ if(!popover.contains(e.target)) popover.classList.add('hidden'); });
+
+/* ------------------------------ Zoom & Pan -------------------------------- */
+function animateTo(target, ms=280, onUpdate=null, onDone=null){
+  const start={...t}; const dtX=target.x-start.x, dtY=target.y-start.y, dtS=target.scale-start.scale;
+  const t0=performance.now();
+  function step(now){
+    const p=Math.min(Math.max((now-t0)/ms,0),1);
+    const ease = p<.5 ? 2*p*p : 1-Math.pow(-2*p+2,2)/2;
+    t={x:start.x+dtX*ease, y:start.y+dtY*ease, scale:start.scale+dtS*ease};
+    applyTransform();
+    if(onUpdate) onUpdate(ease);
+    if(p<1) requestAnimationFrame(step); else if(onDone) onDone();
+  }
+  requestAnimationFrame(step);
+}
+function computeFitTransform(bb, padding=24){
+  const svgW=1200, svgH=720;
+  const scale=Math.min(svgW/(bb.width+padding*2), svgH/(bb.height+padding*2));
+  const cx=bb.x+bb.width/2, cy=bb.y+bb.height/2;
+  return {x:svgW/2 - scale*cx, y:svgH/2 - scale*cy, scale};
+}
+function zoomToBBox(bb, padding=24, followEl=null, setAsBase=false){
+  const target=computeFitTransform(bb, padding);
+  if(followEl) startPopoverFollow(followEl);
+  animateTo(target, 320, ()=>{ if(activePopover.followEl) positionPopoverForElement(activePopover.followEl,'top-center'); }, ()=>{ stopPopoverFollow(); });
+  if(setAsBase) setBaseTransform(target);
+}
+function zoomBy(factor, cx=600, cy=360){
+  let newScale=Math.max(base.scale, Math.min(12, t.scale*factor));
+  if(newScale===base.scale && factor<1){ t={...base}; applyTransform(); return; }
+  t.x = cx - (cx - t.x) * (newScale / t.scale);
+  t.y = cy - (cy - t.y) * (newScale / t.scale);
+  t.scale = newScale; applyTransform();
+}
+function fitOverview(setBaseFlag=true){
+  const bbs=NODES.map(n=>pathBBox(n.path)); const bb=unionBBox(bbs); zoomToBBox(bb, 36, null, setBaseFlag);
+}
+function fitCurrentNode(setBaseFlag=true){
+  const g = parcelLayer.querySelector('#raw_mount');
+  if(g){ const bb=g.getBBox(); zoomToBBox(bb, 36, null, setBaseFlag); return; }
+  animateTo({x:0,y:0,scale:1}); if(setBaseFlag) setBaseTransform({x:0,y:0,scale:1});
+}
+
+zoomInBtn.addEventListener('click', ()=>zoomBy(1.25));
+zoomOutBtn.addEventListener('click', ()=>zoomBy(0.8));
+resetBtn.addEventListener('click', ()=>{ tooltip.classList.add('hidden'); popover.classList.add('hidden'); stopPopoverFollow(); currentNode ? fitCurrentNode(true) : fitOverview(true); });
+map.addEventListener('wheel', (e)=>{
+  e.preventDefault(); const r=map.getBoundingClientRect(); zoomBy(e.deltaY<0?1.1:0.9, e.clientX-r.left, e.clientY-r.top);
+},{passive:false});
+
+// Drag & Pan with threshold
+const PAN_THRESHOLD=6; let pan={tracking:false,panning:false,id:null,startX:0,startY:0,lastX:0,lastY:0}; let justDragged=false;
+map.addEventListener('pointerdown',(e)=>{ pan.tracking=true; pan.panning=false; pan.id=e.pointerId; pan.startX=pan.lastX=e.clientX; pan.startY=pan.lastY=e.clientY; const bg=(e.target===map||e.target.id==='bg'); if(bg){ pan.panning=true; map.setPointerCapture(pan.id);} });
+map.addEventListener('pointermove',(e)=>{ if(!pan.tracking) return; if(!pan.panning){ const dx0=e.clientX-pan.startX, dy0=e.clientY-pan.startY; if(Math.hypot(dx0,dy0)>=PAN_THRESHOLD){ pan.panning=true; justDragged=true; map.setPointerCapture(pan.id);} else return; } const dx=e.clientX-pan.lastX, dy=e.clientY-pan.lastY; pan.lastX=e.clientX; pan.lastY=e.clientY; t.x+=dx; t.y+=dy; applyTransform(); });
+map.addEventListener('pointerup',()=>{ if(pan.panning) map.releasePointerCapture(pan.id); pan={tracking:false,panning:false,id:null,startX:0,startY:0,lastX:0,lastY:0}; if(justDragged) setTimeout(()=>{ justDragged=false; },0); });
+
+/* ----------------------------- Render: Overview --------------------------- */
+function drawNodes(){
+  nodeLayer.innerHTML='';
+  NODES.forEach(n=>{
+    const g=elem('g',{class:'nodeGroup'});
+    const path=elem('path',{d:n.path,class:'node',tabindex:0});
+    path.addEventListener('pointermove',e=>{
+      const extra=(currentType||currentStatus)?`<br><small>${countTypeInNode(n.id,currentType)} match(es)</small>`:'';
+      showTooltipAt(e.clientX,e.clientY,`<b>${n.name}</b><br><small>Area: ${n.info.area} ha • Parcels: ${n.info.parcels}</small>${extra}`);
+    });
+    path.addEventListener('pointerleave', hideTooltip);
+    path.addEventListener('click',()=>{ if(!justDragged) enterNode(n.id); });
+    g.appendChild(path);
+
+    const c=centroid(n.path);
+    const label=elem('text',{x:c.x,y:c.y,'text-anchor':'middle','dominant-baseline':'middle'}, n.name);
+    label.addEventListener('pointermove',()=>{
+      const p=elem('path',{d:n.path}); stage.appendChild(p); const bb=p.getBBox(); p.remove();
+      const pt=svgToClient(bb.x+bb.width/2, bb.y);
+      const extra=(currentType||currentStatus)?`<br><small>${countTypeInNode(n.id,currentType)} match(es)</small>`:'';
+      showTooltipAt(pt.x,pt.y,`<b>${n.name}</b><br><small>Area: ${n.info.area} ha • Parcels: ${n.info.parcels}</small>${extra}`);
+    });
+    label.addEventListener('pointerleave', hideTooltip);
+    label.addEventListener('click',()=>{ if(!justDragged) enterNode(n.id); });
+    g.appendChild(label);
+
+    nodeLayer.appendChild(g);
+  });
+}
+
+/* --------------------- Overview filtered overlay from mapData ------------- */
+function drawParcelsOverview(){
+  parcelLayer.innerHTML='';
+  if(!currentType && !currentStatus) return;
+
+  Object.entries(RAW_NODE_SVGS).forEach(([nodeId,def])=>{
+    const g = parseSVGFragment(def.markup); g.setAttribute('visibility','hidden'); stage.appendChild(g);
+    const meta = buildMetaForNode(nodeId, g);
+    const ids = Object.entries(meta).filter(([,m])=>matchesFilters(m)).map(([id])=>id);
+    ids.forEach(id=>{
+      const el = g.querySelector(`#${CSS.escape(id)}`); if(!el) return;
+      const clone = el.cloneNode(true);
+      const fillColor = TYPE_COLORS[meta[id].type] || '#9ca3af';
+      const strokeStatus = STATUS_COLORS[meta[id].status] || null;
+
+      clone.removeAttribute('class');
+      clone.setAttribute('class', `parcel ov-parcel ${TYPE_CLASS[meta[id].type]||''}`);
+
+      if(clone.tagName!=='line' && clone.tagName!=='polyline'){
+        clone.setAttribute('fill', fillColor); clone.setAttribute('fill-opacity','0.75');
+        if(strokeStatus){ clone.setAttribute('stroke', strokeStatus); clone.setAttribute('stroke-width','3'); }
+      }else{
+        clone.setAttribute('stroke', fillColor); clone.setAttribute('stroke-width','3'); clone.setAttribute('vector-effect','non-scaling-stroke');
+      }
+      parcelLayer.appendChild(clone);
+    });
+    g.remove();
+  });
+}
+
+/* ------------------------------- Sidebar ---------------------------------- */
+function buildNodeList(){
+  nodeList.innerHTML='';
+  if (NODES.length > 1){
+    const li0=document.createElement('li');
+    const btn0=document.createElement('button'); btn0.className='btn'; btn0.textContent='Overview (All Nodes)';
+    btn0.addEventListener('click', ()=>exitToOverview());
+    li0.appendChild(btn0); nodeList.appendChild(li0);
+  }
+  NODES.forEach(n=>{
+    const li=document.createElement('li');
+    const btn=document.createElement('button'); btn.className='btn node-btn'; btn.dataset.nodeId=n.id;
+    btn.innerHTML=`<span>${n.name}</span><span class="small-badge hidden">0</span>`;
+    btn.addEventListener('mouseenter', ()=>{
+      const p=elem('path',{d:n.path}); stage.appendChild(p); const bb=p.getBBox(); p.remove();
+      const pt=svgToClient(bb.x+bb.width/2,bb.y);
+      const extra=(currentType||currentStatus)?`<br><small>${countTypeInNode(n.id,currentType)} match(es)</small>`:'';
+      showTooltipAt(pt.x,pt.y,`<b>${n.name}</b><br><small>Area: ${n.info.area} ha • Parcels: ${n.info.parcels}</small>${extra}`);
+      nodeLayer.querySelectorAll('path').forEach(pth=>pth.classList.remove('is-hot'));
+      const nodePath=[...nodeLayer.querySelectorAll('path')].find(pth=>pth.getAttribute('d')===n.path);
+      if(nodePath) nodePath.classList.add('is-hot');
+    });
+    btn.addEventListener('mouseleave', ()=>{ hideTooltip(); nodeLayer.querySelectorAll('path').forEach(pth=>pth.classList.remove('is-hot')); });
+    btn.addEventListener('click', ()=>enterNode(n.id));
+    li.appendChild(btn); nodeList.appendChild(li);
+  });
+  updateNodeListHighlight();
+}
+function updateNodeListHighlight(){
+  const items=nodeList.querySelectorAll('.node-btn');
+  items.forEach(btn=>{
+    const id=btn.dataset.nodeId; const badge=btn.querySelector('.small-badge');
+    if(!currentType && !currentStatus){ btn.classList.remove('node-has-matches'); badge.classList.add('hidden'); badge.textContent='0'; return; }
+    const n = countTypeInNode(id,currentType);
+    if(n>0){ btn.classList.add('node-has-matches'); badge.classList.remove('hidden'); badge.textContent=n; }
+    else { btn.classList.remove('node-has-matches'); badge.classList.add('hidden'); badge.textContent='0'; }
+  });
+}
+
+/* ------------------------ Node detail: render + interactivity ------------- */
+function buildParcelList(meta){
+  parcelList.innerHTML='';
+  Object.entries(meta).forEach(([id,m])=>{
+    const li=document.createElement('li');
+    const btn=document.createElement('button'); btn.className='btn'; btn.style.textAlign='left';
+    btn.textContent=`${m.label||id} — ${m.type} (${m.status})`;
+
+    const isMatch = matchesFilters(m);
+    if(currentType || currentStatus){
+      if(isMatch){
+        btn.classList.add('match');
+        btn.style.background = TYPE_COLORS[m.type] || '#334155';
+        btn.style.color = '#0b0f14';
+        // subtle status ring
+        const st = STATUS_COLORS[m.status];
+        if(st) btn.style.boxShadow = `0 0 0 2px ${st} inset`;
+      } else {
+        btn.classList.add('dim');
+      }
+    }
+
+    btn.addEventListener('mouseenter', ()=>{
+      const el = parcelLayer.querySelector(`#${CSS.escape(id)}`); if(!el) return;
+      const bb = el.getBBox(); const pt=svgToClient(bb.x+bb.width/2, bb.y);
+      showTooltipAt(pt.x,pt.y,`<b>${m.label||id}</b><br><small>${m.type} • ${( +m.area||0 ).toFixed(2)} ha • ${m.status}</small>`);
+    });
+    btn.addEventListener('mouseleave', hideTooltip);
+    btn.addEventListener('click', ()=>{
+      const el = parcelLayer.querySelector(`#${CSS.escape(id)}`); if(!el) return;
+      openRawParcelPanel(el, id, m);
+      const bb = el.getBBox(); zoomToBBox(bb, 24, el);
+    });
+    li.appendChild(btn); parcelList.appendChild(li);
+  });
+}
+function openRawParcelPanel(el, id, m){
+  setPopoverContent(`
+    <h3 style="margin:0 0 6px">${m.label||id} — ${m.type}</h3>
+    <div><b>Area:</b> ${( +m.area||0 ).toFixed(2)} ha</div>
+    <div><b>Status:</b> ${m.status||'—'}</div>
+    <div><b>Utilities:</b> Power, Water (demo)</div>
+    <div><b>Zoning:</b> ${m.type} (demo)</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn">Download PDF</button>
+      <button class="btn">View Development Potential</button>
+    </div>
+  `);
+  positionPopoverForElement(el,'top-center'); startPopoverFollow(el);
+}
+
+function enterNode(id){
+  currentNode=id;
+  updateBackState(); hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow();
+
+  nodeLayer.innerHTML=''; // hide 5 nodes in detail
+  nodeTitle.classList.remove('hidden');
+  nodeTitle.textContent = `${NODES.find(n=>n.id===id).name} — Parcels`;
+
+  parcelLayer.innerHTML='';
+
+  const def = RAW_NODE_SVGS[id]; if(!def){ buildParcelList({}); fitCurrentNode(true); return; }
+  const g = parseSVGFragment(def.markup);
+  g.id = 'raw_mount';
+  parcelLayer.appendChild(g);
+
+  const meta = buildMetaForNode(id, g);
+
+  // Dim non-matching; interactive matches handled by delegated listeners
+  Object.entries(meta).forEach(([pid,m])=>{
+    const el = g.querySelector(`#${CSS.escape(pid)}`); if(!el) return;
+    const isMatch = matchesFilters(m);
+    el.style.opacity = isMatch ? .95 : .18;
+    if(!isMatch){ el.classList.add('disabled'); } else { el.classList.add('parcel'); }
+  });
+
+  // Delegated handlers (works for all shapes with ids)
+  if (parcelLayer._delegated) {
+    parcelLayer.removeEventListener('click', parcelLayer._delegated.click);
+    parcelLayer.removeEventListener('pointermove', parcelLayer._delegated.move);
+    parcelLayer.removeEventListener('pointerleave', parcelLayer._delegated.leave);
+  }
+  parcelLayer._delegated = {};
+
+  parcelLayer._delegated.click = (e)=>{
+    if (justDragged) return;
+    const el = e.target.closest('#raw_mount [id]');
+    if (!el) return;
+    const pid = el.id;
+    const m = meta[pid];
+    if (!m) return;
+    if (!matchesFilters(m)) return; // inert if filtered out
+    e.stopPropagation();
+    openRawParcelPanel(el, pid, m);
+    const bb = el.getBBox();
+    zoomToBBox(bb, 24, el);
+  };
+  parcelLayer.addEventListener('click', parcelLayer._delegated.click);
+
+  parcelLayer._delegated.move = (e)=>{
+    const el = e.target.closest('#raw_mount [id]');
+    if (!el) { hideTooltip(); return; }
+    const pid = el.id;
+    const m = meta[pid];
+    if (!m) { hideTooltip(); return; }
+    if (!matchesFilters(m)) { hideTooltip(); return; }
+    showTooltipAt(e.clientX, e.clientY, `<b>${m.label||pid}</b><br><small>${m.type} • ${( +m.area||0 ).toFixed(2)} ha • ${m.status}</small>`);
+  };
+  parcelLayer.addEventListener('pointermove', parcelLayer._delegated.move);
+
+  parcelLayer._delegated.leave = ()=> hideTooltip();
+  parcelLayer.addEventListener('pointerleave', parcelLayer._delegated.leave);
+
+  buildParcelList(meta);
+  fitCurrentNode(true);              // set zoom floor to node fit
+  summaryBottom.classList.add('hidden');
+  updateNodeListHighlight();
+}
+
+function exitToOverview(){
+  currentNode=null;
+  updateBackState(); hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow();
+
+  nodeTitle.classList.add('hidden');
+  parcelLayer.innerHTML='';
+  if (parcelLayer._delegated) {
+    parcelLayer.removeEventListener('click', parcelLayer._delegated.click);
+    parcelLayer.removeEventListener('pointermove', parcelLayer._delegated.move);
+    parcelLayer.removeEventListener('pointerleave', parcelLayer._delegated.leave);
+    parcelLayer._delegated = null;
+  }
+
+  drawNodes(); drawParcelsOverview();
+  parcelList.innerHTML='';
+  updateSummary();
+  fitOverview(true);                  // set zoom floor to overview
+  updateNodeListHighlight();
+}
+
+/* --------------------------- Filter / Summary ----------------------------- */
+function setType(tLabel){
+  currentType=tLabel;
+  updateStatusText();
+  updateSummary();
+  redraw();
+  if(currentNode){
+    const g = parcelLayer.querySelector('#raw_mount');
+    const meta = g ? buildMetaForNode(currentNode, g) : {};
+    buildParcelList(meta);
+  }
+  updateNodeListHighlight();
+}
+function setStatus(sLabel){
+  currentStatus=sLabel;
+  updateStatusText();
+  updateSummary();
+  redraw();
+  if(currentNode){
+    const g = parcelLayer.querySelector('#raw_mount');
+    const meta = g ? buildMetaForNode(currentNode, g) : {};
+    buildParcelList(meta);
+  }
+  updateNodeListHighlight();
+}
+function updateStatusText(){
+  const t = currentType ? `Type: ${currentType}` : 'Type: All';
+  const s = currentStatus ? `Status: ${currentStatus}` : 'Status: All';
+  statusEl.textContent = `${t} | ${s}`;
+}
+
+function getStats(){
+  let list = mapData.filter(m=>!currentNode || (m.node ? m.node===currentNode : true));
+  if(currentNode){
+    const def = RAW_NODE_SVGS[currentNode]; if(def){
+      const tmp = parseSVGFragment(def.markup); stage.appendChild(tmp);
+      const ids = new Set([...tmp.querySelectorAll('[id]')].map(el=>el.id));
+      list = list.filter(m=>m.node?m.node===currentNode:ids.has(m.id));
+      tmp.remove();
+    }
+  }
+  list = list.filter(m=>matchesFilters(m));
+  const area = list.reduce((s,m)=>s+(+m.area||0),0);
+  return {count:list.length, area};
+}
+function updateSummary(){
+  const stats=getStats();
+  const title=currentNode ? `${NODES.find(n=>n.id===currentNode).name}` : 'Summary — Overview';
+  if(!currentNode){
+    summaryBottom.classList.remove('hidden');
+    summaryBottom.innerHTML = `<b>${title}</b> · Matches: ${stats.count} · Total Area: ${stats.area.toFixed(1)} ha`;
+  } else summaryBottom.classList.add('hidden');
+
+  if(currentType || currentStatus){
+    const parts=[]; if(currentType) parts.push(currentType); if(currentStatus) parts.push(currentStatus);
+    counter.textContent=`${stats.count} ${parts.join(' ')} Parcel(s)`;
+    counter.classList.remove('hidden');
+  } else counter.classList.add('hidden');
+}
+
+/* -------------------------------- Boot/UI -------------------------------- */
+function redraw(){ if(currentNode) enterNode(currentNode); else { drawNodes(); drawParcelsOverview(); } }
+function updateBackState(){ const single=NODES.length<=1; backBtn.disabled = single || !currentNode; }
+function updateSidebarVisibility(){ const single=NODES.length<=1; nodesTitle.style.display=single?'none':''; nodeList.style.display=single?'none':''; nodesDivider.style.display=single?'none':''; }
+
+backBtn.addEventListener('click', exitToOverview);
+/* Close popover ONLY when clicking the background, not parcel rects */
+map.addEventListener('click', (e)=>{
+  if (e.target === map || e.target.id === 'bg') {
+    hideTooltip(); popover.classList.add('hidden'); stopPopoverFollow();
+  }
+});
+window.addEventListener('keydown', e=>{ if(e.key==='Escape' && currentNode){ exitToOverview(); } });
+
+(function build(){
+  buildTypeLegend();
+  buildStatusLegend();
+  updateStatusText();
+
+  buildNodeList();
+  updateSidebarVisibility();
+  updateBackState();
+
+  drawNodes();
+  drawParcelsOverview();
+  updateSummary();
+  fitOverview(true);          // set zoom-out floor at load
+})();
+</script>
+</body>
+</html>
